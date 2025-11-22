@@ -1,0 +1,103 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Variable group for Terraform backend configuration and service connection
+  - group: tfstate-vars-prod
+
+stages:
+  # ----------------------------------------------------------------
+  # Validate Stage
+  # - Fast feedback stage to check formatting and syntax
+  # - No secrets or Azure connection required
+  # ----------------------------------------------------------------
+  - stage: Validate
+    displayName: 'Validate Terraform'
+    jobs:
+      - job: ValidateCode
+        displayName: 'Validate Terraform Code'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - template: templates/terraform-installer.yaml
+
+          - task: PowerShell@2
+            displayName: 'Terraform Format Check'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: 'terraform fmt -check'
+              workingDirectory: 'environments/production'
+
+          - task: PowerShell@2
+            displayName: 'Terraform Init (Validation)'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: 'terraform init -backend=false'
+              workingDirectory: 'environments/production'
+
+          - task: PowerShell@2
+            displayName: 'Terraform Validate'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: 'terraform validate'
+              workingDirectory: 'environments/production'
+
+  # ----------------------------------------------------------------
+  # Plan Stage
+  # - Creates the Terraform plan
+  # ----------------------------------------------------------------
+  - stage: Plan
+    displayName: 'Terraform Plan'
+    dependsOn: Validate
+    condition: succeeded()
+    jobs:
+      - job: TerraformPlan
+        displayName: 'Run Terraform Plan'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - template: templates/terraform-installer.yaml
+          - template: templates/terraform-init.yaml
+          - template: templates/terraform-plan.yaml
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Terraform Plan'
+            inputs:
+              targetPath: 'environments/production/tfplan'
+              artifact: 'terraform-plan'
+
+  # ----------------------------------------------------------------
+  # Apply Stage
+  # - Applies the Terraform plan
+  # ----------------------------------------------------------------
+  - stage: Apply
+    displayName: 'Terraform Apply'
+    dependsOn: Plan
+    condition: succeeded()
+    jobs:
+      - deployment: TerraformApply
+        displayName: 'Apply Terraform Plan'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: templates/terraform-installer.yaml
+
+                - task: DownloadPipelineArtifact@2
+                  displayName: 'Download Terraform Plan'
+                  inputs:
+                    artifact: 'terraform-plan'
+                    path: 'environments/production'
+
+                - template: templates/terraform-init.yaml
+                - template: templates/terraform-apply.yaml

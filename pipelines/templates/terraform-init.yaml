@@ -1,0 +1,31 @@
+---
+steps:
+  - task: AzureCLI@2
+    displayName: Terraform Init
+    inputs:
+      azureSubscription: $(azure-service-connection)
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: 'environments/production'
+      inlineScript: |
+        Write-Host "--- Terraform Init ---"
+        terraform init -input=false `
+          -backend-config="use_oidc=true" `
+          -backend-config="use_azuread_auth=true" `
+          -backend-config="subscription_id=$(backend-tfstate-subscription-id)" `
+          -backend-config="tenant_id=$(backend-tfstate-tenant-id)" `
+          -backend-config="resource_group_name=$(backend-tfstate-rg-name)" `
+          -backend-config="storage_account_name=$(backend-tfstate-storage-name)" `
+          -backend-config="container_name=$(backend-tfstate-container-name)" `
+          -backend-config="key=$(backend-tfstate-key-name)"
+
+        Write-Host "--- Adding execute permission to provider ---"
+        Get-ChildItem -Path ".terraform/providers" -Recurse -Filter "terraform-provider-*" | ForEach-Object {
+            Write-Host "Adding execute permission to: $($_.FullName)"
+            chmod +x $_.FullName
+        }
+    env:
+      ARM_USE_OIDC: true
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      SYSTEM_OIDCREQUESTURI: $(System.OidcRequestUri)
+      ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID: $(azure-service-connection)

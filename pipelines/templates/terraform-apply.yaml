@@ -1,0 +1,20 @@
+---
+steps:
+  - task: AzureCLI@2
+    displayName: Terraform Apply
+    inputs:
+      azureSubscription: $(azure-service-connection)
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: 'environments/production'
+      inlineScript: |
+        Write-Host "--- Explicitly setting subscription ID for Terraform provider ---"
+        $env:ARM_SUBSCRIPTION_ID = $(az account show --query id -o tsv)
+
+        Write-Host "--- Terraform Apply ---"
+        terraform apply -auto-approve tfplan
+    env:
+      ARM_USE_OIDC: true
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      SYSTEM_OIDCREQUESTURI: $(System.OidcRequestUri)
+      ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID: $(azure-service-connection)

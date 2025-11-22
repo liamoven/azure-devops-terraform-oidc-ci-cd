@@ -1,0 +1,40 @@
+---
+steps:
+  - task: AzureCLI@2
+    displayName: Terraform Plan
+    inputs:
+      azureSubscription: $(azure-service-connection)
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: 'environments/production'
+      inlineScript: |
+        Write-Host "--- Explicitly setting subscription ID for Terraform provider ---"
+        $env:ARM_SUBSCRIPTION_ID = $(az account show --query id -o tsv)
+
+        Write-Host "--- Terraform Validate ---"
+        terraform validate
+
+        Write-Host "--- Terraform Plan ---"
+        terraform plan -out=tfplan
+
+        Write-Host "--- Generating Plan Summary ---"
+        terraform show -json tfplan > tfplan.json
+        $planJson = Get-Content -Raw tfplan.json
+        $planObject = ConvertFrom-Json $planJson -Depth 100
+
+        $items = @{}
+        foreach($change in $planObject.resource_changes) {
+          $key = [System.String]::Join("-", $change.change.actions)
+          if(!$items.ContainsKey($key)) {
+            $items[$key] = 0
+          }
+          $items[$key]++
+        }
+        
+        Write-Host "Plan Summary"
+        Write-Host ($items | ConvertTo-Json -Depth 10)
+    env:
+      ARM_USE_OIDC: true
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      SYSTEM_OIDCREQUESTURI: $(System.OidcRequestUri)
+      ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID: $(azure-service-connection)
